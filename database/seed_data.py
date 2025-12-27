@@ -6,7 +6,12 @@ import random
 def seed_example_data():
     """
     Seeds the database with the Gothic hide example and some sales if it doesn't already exist.
+    Also calls the Etsy products population script.
     """
+    # 1. Populate Etsy products first
+    from .populate_etsy_products import populate_etsy_products
+    populate_etsy_products()
+
     # Use a transaction to ensure atomicity
     with db.atomic():
         # 1. Create/Get Filaments

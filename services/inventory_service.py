@@ -38,8 +38,8 @@ class InventoryService:
 
     @staticmethod
     def get_all_products():
-        """Returns all products ordered by type and size."""
-        return Product.select().order_by(Product.product_type, Product.size)
+        """Returns all products ordered by type, color, and size."""
+        return Product.select().order_by(Product.product_type, Product.color_variant, Product.size)
 
     @staticmethod
     def save_product(product_id=None, product_data=None, parts_data=None):
@@ -291,6 +291,72 @@ class InventoryService:
                 
         data['net_profit'] = data['gross_revenue'] - data['total_cost']
         return data
+
+    @staticmethod
+    def get_todo_data():
+        """
+        Returns a dictionary with 'to_print' and 'to_order' lists.
+        'to_print': List of top 4 products that sell most and have stock < 3.
+        'to_order': List of filaments to order with quantities.
+        """
+        from peewee import fn
+        # 1. Calculate sales count for each product
+        sales_counts = (Sale
+                        .select(Sale.product, fn.COUNT(Sale.id).alias('count'))
+                        .group_by(Sale.product))
+        
+        count_map = {s.product_id: s.count for s in sales_counts}
+        
+        # 2. Get next 4 things to print
+        # Products needing stock (less than 3)
+        needing_stock = Product.select().where(Product.inventory_count < 3)
+        
+        # Sort needing_stock by sales count
+        sorted_products = sorted(needing_stock, key=lambda p: count_map.get(p.id, 0), reverse=True)
+        to_print = sorted_products[:4]
+        
+        # 3. Calculate filament to order
+        # Requirement: print min 6 of any product + what the to_print list will consume
+        
+        all_filaments = Filament.select()
+        to_order = []
+        all_products = list(Product.select())
+        
+        for filament in all_filaments:
+            # G_todo(F) = grams needed to reach stock of 3 for everything in to_print
+            grams_todo = Decimal('0')
+            for p in to_print:
+                usage = p.total_filament_usage
+                grams_needed_per_unit = usage.get(filament, Decimal('0'))
+                units_needed = max(0, 3 - p.inventory_count)
+                grams_todo += grams_needed_per_unit * Decimal(str(units_needed))
+            
+            # G_buffer(F) = max grams needed to print 6 of ANY single product
+            max_grams_for_6 = Decimal('0')
+            for p in all_products:
+                usage = p.total_filament_usage
+                grams_needed_per_unit = usage.get(filament, Decimal('0'))
+                max_grams_for_6 = max(max_grams_for_6, grams_needed_per_unit * 6)
+            
+            total_needed = grams_todo + max_grams_for_6
+            
+            # G_available(F)
+            total_available = filament.grams_remaining + (filament.rolls_in_stock * filament.grams_per_roll)
+            
+            grams_to_order = max(Decimal('0'), total_needed - total_available)
+            
+            if grams_to_order > 0:
+                rolls_to_order = int((grams_to_order / filament.grams_per_roll).to_integral_value(rounding='ROUND_UP'))
+                to_order.append({
+                    'filament': filament,
+                    'rolls': rolls_to_order,
+                    'grams': grams_to_order
+                })
+        
+        return {
+            'to_print': to_print,
+            'to_order': to_order
+        }
 
 class SaleDraft:
     """
