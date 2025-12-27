@@ -1,5 +1,6 @@
-from models import Sale, SaleItem, Product, db
+from models import Sale, Product, Part, Filament, ProductFilament, PartFilament, db
 from datetime import datetime
+from decimal import Decimal
 
 class InventoryService:
     """
@@ -8,32 +9,288 @@ class InventoryService:
     """
 
     @staticmethod
-    def create_sale(items_data):
+    def get_all_filaments():
+        """Returns all filaments ordered by brand and color."""
+        return Filament.select().order_by(Filament.brand, Filament.color)
+
+    @staticmethod
+    def save_filament(filament_id=None, **data):
         """
-        Creates a complete sale with multiple items in a single transaction.
-        
-        items_data: List of dicts [{'product': product_obj, 'quantity': int}, ...]
+        Creates or updates a filament.
+        data: dict with brand, material, color, cost_per_roll, grams_per_roll, grams_remaining, rolls_in_stock
+        """
+        if filament_id:
+            filament = Filament.get_by_id(filament_id)
+            for key, value in data.items():
+                setattr(filament, key, value)
+            filament.save()
+            return filament
+        else:
+            return Filament.create(**data)
+
+    @staticmethod
+    def delete_filament(filament_id):
+        """Deletes a filament by ID."""
+        if filament_id:
+            Filament.delete_by_id(filament_id)
+            return True
+        return False
+
+    @staticmethod
+    def get_all_products():
+        """Returns all products ordered by type and size."""
+        return Product.select().order_by(Product.product_type, Product.size)
+
+    @staticmethod
+    def save_product(product_id=None, product_data=None, parts_data=None):
+        """
+        Creates or updates a product and its associated parts.
+        product_data: dict with product_type, size, color_variant, print_time_hours, inventory_count
+        parts_data: list of dicts [{'id': optional, 'name': str, 'print_time_hours': float, 'filament_usage': {filament_obj: grams}}]
         """
         with db.atomic():
-            new_sale = Sale.create()
-            for item in items_data:
-                SaleItem.create(
-                    sale=new_sale,
-                    product=item['product'],
-                    quantity=item['quantity']
+            if product_id:
+                product = Product.get_by_id(product_id)
+                for key, value in product_data.items():
+                    setattr(product, key, value)
+                product.save()
+            else:
+                product = Product.create(**product_data)
+
+            # Handle Parts
+            if parts_data is not None:
+                # Keep track of current part IDs to delete removed ones
+                existing_part_ids = [p.id for p in product.parts]
+                updated_part_ids = []
+
+                for p_data in parts_data:
+                    part_id = p_data.get('id')
+                    filament_usage = p_data.pop('filament_usage', {})
+                    
+                    if part_id:
+                        part = Part.get_by_id(part_id)
+                        for key, value in p_data.items():
+                            if key != 'id':
+                                setattr(part, key, value)
+                        part.save()
+                        updated_part_ids.append(part.id)
+                    else:
+                        part = Part.create(product=product, **p_data)
+                        updated_part_ids.append(part.id)
+
+                    # Update Filament Usage for Part
+                    # Clear existing and re-add for simplicity in this junction table update
+                    PartFilament.delete().where(PartFilament.part == part).execute()
+                    for filament, grams in filament_usage.items():
+                        if grams > 0:
+                            part.add_filament_usage(filament, grams)
+
+                # Delete parts that were not in the update
+                for pid in existing_part_ids:
+                    if pid not in updated_part_ids:
+                        Part.delete_by_id(pid)
+
+            return product
+
+    @staticmethod
+    def delete_product(product_id):
+        """Deletes a product by ID."""
+        if product_id:
+            Product.delete_by_id(product_id)
+            return True
+        return False
+
+    @staticmethod
+    def create_sale(product, quantity, total_value):
+        """
+        Creates a complete sale. If quantity > 1, it splits the sale into multiple records
+        as per the "1 item per sale" requirement, dividing the total value equally.
+        
+        product: product object
+        quantity: int
+        total_value: float/Decimal total value for the entire quantity
+        """
+        with db.atomic():
+            quantity = int(quantity)
+            total_value = Decimal(str(total_value))
+            
+            if quantity <= 0:
+                return []
+            
+            unit_value = (total_value / quantity).quantize(Decimal('0.01'))
+            
+            created_sales = []
+            for i in range(quantity):
+                # For the last one, we might need to adjust for rounding to match total_value exactly
+                # but for simplicity and since user said "divide cost by count", equal split is fine.
+                # If they want exact precision:
+                current_value = unit_value
+                if i == quantity - 1:
+                    current_value = total_value - (unit_value * (quantity - 1))
+                
+                sale = Sale.create(
+                    product=product,
+                    total_value=current_value
                 )
-            return new_sale
+                created_sales.append(sale)
+            
+            # Adjust inventory once for the whole quantity
+            product.adjust_inventory(-quantity)
+            
+            # Adjust filament inventory
+            total_usage = product.total_filament_usage
+            for filament, grams_per_unit in total_usage.items():
+                total_grams = grams_per_unit * quantity
+                filament.adjust_inventory(total_grams)
+                
+            return created_sales
+
+    @staticmethod
+    def calculate_printable_count(product):
+        """
+        Calculates how many of a given product could be printed with current filament inventory.
+        """
+        total_usage = product.total_filament_usage
+        if not total_usage:
+            return 0
+        
+        limit = None
+        for filament, grams_needed in total_usage.items():
+            if grams_needed <= 0:
+                continue
+            
+            # Total grams available for this filament
+            total_available = filament.grams_remaining + (filament.rolls_in_stock * filament.grams_per_roll)
+            can_print = int(total_available // grams_needed)
+            
+            if limit is None or can_print < limit:
+                limit = can_print
+        
+        return limit if limit is not None else 0
 
     @staticmethod
     def get_active_sales():
         """
-        Returns all sales with their items and products pre-loaded 
-        to avoid N+1 query issues. This makes 'sale.items' access 
-        instant without further DB calls.
+        Returns all sales ordered by date.
         """
-        from models import SaleItem
-        sales = Sale.select().order_by(Sale.date.desc())
-        return sales.prefetch(SaleItem, Product)
+        return Sale.select().order_by(Sale.date.desc())
+
+    @staticmethod
+    def update_sale(sale_id, **data):
+        """
+        Updates a sale record and adjusts product inventory if needed.
+        data: dict with product, total_value, date
+        """
+        with db.atomic():
+            sale = Sale.get_by_id(sale_id)
+            old_product = sale.product
+            new_product = data.get('product', old_product)
+            
+            # If product changed, adjust inventory for both
+            if old_product != new_product:
+                old_product.adjust_inventory(1) # Revert old
+                new_product.adjust_inventory(-1) # Apply new
+                
+                # Revert filament for old product
+                old_usage = old_product.total_filament_usage
+                for filament, grams in old_usage.items():
+                    filament.adjust_inventory(-grams) # Negative to add back
+                
+                # Apply filament for new product
+                new_usage = new_product.total_filament_usage
+                for filament, grams in new_usage.items():
+                    filament.adjust_inventory(grams) # Positive to subtract
+            
+            for key, value in data.items():
+                setattr(sale, key, value)
+            sale.save()
+            return sale
+
+    @staticmethod
+    def delete_sale(sale_id):
+        """
+        Deletes a sale and reverts the product inventory.
+        """
+        with db.atomic():
+            sale = Sale.get_by_id(sale_id)
+            sale.product.adjust_inventory(1) # Revert inventory
+            
+            # Revert filament usage
+            usage = sale.product.total_filament_usage
+            for filament, grams in usage.items():
+                filament.adjust_inventory(-grams) # Add back
+                
+            sale.delete_instance()
+            return True
+
+    @staticmethod
+    def get_analytics_data(start_date, end_date):
+        """
+        Aggregates sales data within a date range.
+        start_date, end_date: datetime objects
+        """
+        sales = Sale.select().where(
+            (Sale.date >= start_date) & 
+            (Sale.date <= end_date)
+        ).order_by(Sale.date)
+        
+        data = {
+            'total_sales_count': len(sales),
+            'gross_revenue': Decimal('0.00'),
+            'total_cost': Decimal('0.00'),
+            'net_profit': Decimal('0.00'),
+            'product_breakdown': {}, # product_name: {count, revenue, cost}
+            'filament_usage': {},    # filament_name: grams
+            'daily_stats': {},       # date_str: {revenue, cost, profit}
+        }
+        
+        for sale in sales:
+            prod = sale.product
+            data['gross_revenue'] += sale.total_value
+            
+            # Product breakdown
+            prod_name = str(prod)
+            if prod_name not in data['product_breakdown']:
+                data['product_breakdown'][prod_name] = {
+                    'count': 0,
+                    'revenue': Decimal('0.00'),
+                    'cost': Decimal('0.00')
+                }
+            data['product_breakdown'][prod_name]['count'] += 1
+            data['product_breakdown'][prod_name]['revenue'] += sale.total_value
+            
+            # Calculate cost for this specific sale (at current material prices)
+            sale_cost = prod.total_cost
+            data['total_cost'] += sale_cost
+            data['product_breakdown'][prod_name]['cost'] += sale_cost
+            
+            # Daily stats
+            date_str = sale.date.strftime("%Y-%m-%d")
+            if date_str not in data['daily_stats']:
+                data['daily_stats'][date_str] = {
+                    'revenue': Decimal('0.00'),
+                    'cost': Decimal('0.00'),
+                    'profit': Decimal('0.00')
+                }
+            data['daily_stats'][date_str]['revenue'] += sale.total_value
+            data['daily_stats'][date_str]['cost'] += sale_cost
+            data['daily_stats'][date_str]['profit'] += (sale.total_value - sale_cost)
+
+            # Filament usage breakdown
+            usage = prod.total_filament_usage
+            for filament, grams in usage.items():
+                fil_name = str(filament)
+                if fil_name not in data['filament_usage']:
+                    data['filament_usage'][fil_name] = {'grams': Decimal('0.00'), 'cost': Decimal('0.00')}
+                
+                data['filament_usage'][fil_name]['grams'] += grams
+                
+                # Calculate cost for this specific filament usage
+                fil_cost = (grams / filament.grams_per_roll) * filament.cost_per_roll
+                data['filament_usage'][fil_name]['cost'] += fil_cost
+                
+        data['net_profit'] = data['gross_revenue'] - data['total_cost']
+        return data
 
 class SaleDraft:
     """
@@ -41,17 +298,17 @@ class SaleDraft:
     committing it to the database.
     """
     def __init__(self):
-        self.items = []  # List of (product, quantity)
+        self.product = None
+        self.quantity = 1
+        self.total_value = Decimal('0.00')
 
-    def add_item(self, product, quantity):
-        self.items.append({'product': product, 'quantity': quantity})
-
-    def remove_item(self, index):
-        if 0 <= index < len(self.items):
-            self.items.pop(index)
+    def set_data(self, product, quantity, total_value):
+        self.product = product
+        self.quantity = quantity
+        self.total_value = Decimal(str(total_value))
 
     def save(self):
         """Commits the draft to the database using the service."""
-        if not self.items:
+        if not self.product:
             return None
-        return InventoryService.create_sale(self.items)
+        return InventoryService.create_sale(self.product, self.quantity, self.total_value)

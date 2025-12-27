@@ -1,9 +1,11 @@
 import customtkinter as ctk
+from .overview_view import OverviewView
 from .filament_view import FilamentView
 from .product_view import ProductView
+from .sales_view import SalesView
 from .analytics_view import AnalyticsView
 from models.base import set_database, db
-from database import initialize_database
+from database import initialize_database, seed_example_data
 import os
 
 class MainWindow(ctk.CTk):
@@ -11,7 +13,7 @@ class MainWindow(ctk.CTk):
         super().__init__()
 
         self.title("InventoryManager")
-        self.geometry("1100x600")
+        self.geometry("1100x700")
 
         # set grid layout 1x2
         self.grid_rowconfigure(0, weight=1)
@@ -20,34 +22,46 @@ class MainWindow(ctk.CTk):
         # create navigation frame
         self.navigation_frame = ctk.CTkFrame(self, corner_radius=0)
         self.navigation_frame.grid(row=0, column=0, sticky="nsew")
-        self.navigation_frame.grid_rowconfigure(4, weight=1)
+        self.navigation_frame.grid_rowconfigure(5, weight=1)
 
         self.navigation_frame_label = ctk.CTkLabel(self.navigation_frame, text="InventoryManager",
                                                              compound="left", font=ctk.CTkFont(size=15, weight="bold"))
         self.navigation_frame_label.grid(row=0, column=0, padx=20, pady=20)
 
-        self.home_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Filaments",
+        self.overview_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Overview",
                                                    fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
-                                                   anchor="w", command=self.home_button_event)
-        self.home_button.grid(row=1, column=0, sticky="ew")
+                                                   anchor="w", command=self.overview_button_event)
+        self.overview_button.grid(row=1, column=0, sticky="ew")
 
-        self.frame_2_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Products",
-                                                      fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
-                                                      anchor="w", command=self.frame_2_button_event)
-        self.frame_2_button.grid(row=2, column=0, sticky="ew")
+        self.filament_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Filaments",
+                                                   fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
+                                                   anchor="w", command=self.filament_button_event)
+        self.filament_button.grid(row=2, column=0, sticky="ew")
 
-        self.frame_3_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Analytics",
+        self.product_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Products",
                                                       fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
-                                                      anchor="w", command=self.frame_3_button_event)
-        self.frame_3_button.grid(row=3, column=0, sticky="ew")
+                                                      anchor="w", command=self.product_button_event)
+        self.product_button.grid(row=3, column=0, sticky="ew")
+
+        self.sales_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Sales",
+                                                      fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
+                                                      anchor="w", command=self.sales_button_event)
+        self.sales_button.grid(row=4, column=0, sticky="ew")
+
+        self.analytics_button = ctk.CTkButton(self.navigation_frame, corner_radius=0, height=40, border_spacing=10, text="Analytics",
+                                                      fg_color="transparent", text_color=("gray10", "gray90"), hover_color=("gray70", "gray30"),
+                                                      anchor="w", command=self.analytics_button_event)
+        self.analytics_button.grid(row=5, column=0, sticky="ew")
 
         self.appearance_mode_menu = ctk.CTkOptionMenu(self.navigation_frame, values=["Light", "Dark", "System"],
                                                                 command=self.change_appearance_mode_event)
-        self.appearance_mode_menu.grid(row=6, column=0, padx=20, pady=20, sticky="s")
+        self.appearance_mode_menu.grid(row=7, column=0, padx=20, pady=20, sticky="s")
 
         # create frames
+        self.overview_frame = OverviewView(self, corner_radius=0, fg_color="transparent")
         self.filament_frame = FilamentView(self, corner_radius=0, fg_color="transparent")
         self.product_frame = ProductView(self, corner_radius=0, fg_color="transparent")
+        self.sales_frame = SalesView(self, corner_radius=0, fg_color="transparent")
         self.analytics_frame = AnalyticsView(self, corner_radius=0, fg_color="transparent")
 
         # dataset selection in top right of navigation or main area?
@@ -74,35 +88,56 @@ class MainWindow(ctk.CTk):
         self.navigation_frame.grid(row=0, column=0, rowspan=2, sticky="nsew")
 
         # select default frame
-        self.select_frame_by_name("filaments")
+        self.select_frame_by_name("overview")
 
     def select_frame_by_name(self, name):
         # set button color for selected button
-        self.home_button.configure(fg_color=("gray75", "gray25") if name == "filaments" else "transparent")
-        self.frame_2_button.configure(fg_color=("gray75", "gray25") if name == "products" else "transparent")
-        self.frame_3_button.configure(fg_color=("gray75", "gray25") if name == "analytics" else "transparent")
+        self.overview_button.configure(fg_color=("gray75", "gray25") if name == "overview" else "transparent")
+        self.filament_button.configure(fg_color=("gray75", "gray25") if name == "filaments" else "transparent")
+        self.product_button.configure(fg_color=("gray75", "gray25") if name == "products" else "transparent")
+        self.sales_button.configure(fg_color=("gray75", "gray25") if name == "sales" else "transparent")
+        self.analytics_button.configure(fg_color=("gray75", "gray25") if name == "analytics" else "transparent")
 
         # show selected frame
+        if name == "overview":
+            self.overview_frame.grid(row=1, column=1, sticky="nsew")
+            self.overview_frame.refresh()
+        else:
+            self.overview_frame.grid_forget()
         if name == "filaments":
             self.filament_frame.grid(row=1, column=1, sticky="nsew")
+            self.filament_frame.refresh()
         else:
             self.filament_frame.grid_forget()
         if name == "products":
             self.product_frame.grid(row=1, column=1, sticky="nsew")
+            self.product_frame.refresh()
         else:
             self.product_frame.grid_forget()
+        if name == "sales":
+            self.sales_frame.grid(row=1, column=1, sticky="nsew")
+            self.sales_frame.refresh()
+        else:
+            self.sales_frame.grid_forget()
         if name == "analytics":
             self.analytics_frame.grid(row=1, column=1, sticky="nsew")
+            self.analytics_frame.refresh()
         else:
             self.analytics_frame.grid_forget()
 
-    def home_button_event(self):
+    def overview_button_event(self):
+        self.select_frame_by_name("overview")
+
+    def filament_button_event(self):
         self.select_frame_by_name("filaments")
 
-    def frame_2_button_event(self):
+    def product_button_event(self):
         self.select_frame_by_name("products")
 
-    def frame_3_button_event(self):
+    def sales_button_event(self):
+        self.select_frame_by_name("sales")
+
+    def analytics_button_event(self):
         self.select_frame_by_name("analytics")
 
     def change_appearance_mode_event(self, new_appearance_mode):
@@ -120,6 +155,17 @@ class MainWindow(ctk.CTk):
         # Re-initialize (ensure tables exist)
         initialize_database()
         
-        # Refresh views (currently views are just placeholder frames, 
-        # but in the future they might need to reload data)
+        # Re-open connection for the app session
+        db.connect()
+
+        # Seed example data if needed
+        seed_example_data()
+        
+        # Refresh current view
+        self.overview_frame.refresh()
+        self.filament_frame.refresh()
+        self.product_frame.refresh()
+        self.sales_frame.refresh()
+        self.analytics_frame.refresh()
+        
         print(f"Switched to {new_dataset} database.")

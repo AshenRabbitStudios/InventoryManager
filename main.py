@@ -1,4 +1,4 @@
-from database import initialize_database
+from database import initialize_database, seed_example_data
 from models import db
 from gui.main_window import MainWindow
 import customtkinter as ctk
@@ -6,6 +6,12 @@ import customtkinter as ctk
 def main():
     # Initialize database on first run
     initialize_database()
+    
+    # Open connection for the app session
+    db.connect()
+
+    # Seed example data if needed
+    seed_example_data()
 
     # Set up GUI
     ctk.set_appearance_mode("System")

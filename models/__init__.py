@@ -1,7 +1,7 @@
 from .base import db, BaseModel
 from .filament import Filament, FilamentPurchase
 from .product import Product, Part, ProductFilament, PartFilament
-from .sale import Sale, SaleItem
+from .sale import Sale
 
 __all__ = [
     'db',
@@ -13,5 +13,4 @@ __all__ = [
     'ProductFilament',
     'PartFilament',
     'Sale',
-    'SaleItem',
 ]

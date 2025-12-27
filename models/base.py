@@ -7,10 +7,16 @@ db = Proxy()
 
 def set_database(env_name):
     """Sets the database based on environment name ('prod' or 'test')"""
+    pragmas = {
+        'journal_mode': 'wal',
+        'cache_size': -1024 * 64,  # 64MB
+        'foreign_keys': 1,
+        'ignore_check_constraints': 0,
+    }
     if env_name == 'test':
-        actual_db = SqliteDatabase(TEST_DATABASE_PATH)
+        actual_db = SqliteDatabase(TEST_DATABASE_PATH, pragmas=pragmas)
     else:
-        actual_db = SqliteDatabase(DATABASE_PATH)
+        actual_db = SqliteDatabase(DATABASE_PATH, pragmas=pragmas)
     db.initialize(actual_db)
 
 # Initialize with default or environment variable

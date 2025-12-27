@@ -1,9 +1,9 @@
-from models import db, Filament, FilamentPurchase, Product, Part, ProductFilament, PartFilament, Sale, SaleItem
+from models import db, Filament, FilamentPurchase, Product, Part, ProductFilament, PartFilament, Sale
 
 def initialize_database():
     """Create all tables if they don't exist"""
     db.connect()
-    db.create_tables([Filament, FilamentPurchase, Product, Part, ProductFilament, PartFilament, Sale, SaleItem])
+    db.create_tables([Filament, FilamentPurchase, Product, Part, ProductFilament, PartFilament, Sale])
     print("Database initialized successfully!")
     db.close()
 
@@ -18,6 +18,6 @@ def reset_database():
         db.execute_sql(f'DROP TABLE IF EXISTS "{table}";')
     db.execute_sql('PRAGMA foreign_keys = ON;')
     
-    db.create_tables([Filament, FilamentPurchase, Product, Part, ProductFilament, PartFilament, Sale, SaleItem])
+    db.create_tables([Filament, FilamentPurchase, Product, Part, ProductFilament, PartFilament, Sale])
     print("Database reset complete!")
     db.close()
