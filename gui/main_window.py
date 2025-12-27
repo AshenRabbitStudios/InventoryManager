@@ -144,28 +144,35 @@ class MainWindow(ctk.CTk):
         ctk.set_appearance_mode(new_appearance_mode)
 
     def change_dataset_event(self, new_dataset):
-        # Close current connection
-        if not db.is_closed():
-            db.close()
-        
-        # Switch database
-        env = "test" if new_dataset == "Test" else "prod"
-        set_database(env)
-        
-        # Re-initialize (ensure tables exist)
-        initialize_database()
-        
-        # Re-open connection for the app session
-        db.connect()
+        try:
+            # Close current connection
+            if not db.is_closed():
+                db.close()
+            
+            # Switch database
+            env = "test" if new_dataset == "Test" else "prod"
+            set_database(env)
+            
+            # Re-initialize (ensure tables exist)
+            initialize_database()
+            
+            # Re-open connection for the app session
+            db.connect()
 
-        # Seed example data if needed
-        seed_example_data()
-        
-        # Refresh current view
-        self.overview_frame.refresh()
-        self.filament_frame.refresh()
-        self.product_frame.refresh()
-        self.sales_frame.refresh()
-        self.analytics_frame.refresh()
-        
-        print(f"Switched to {new_dataset} database.")
+            # Seed example data if needed
+            seed_example_data()
+            
+            # Refresh current view
+            self.overview_frame.refresh()
+            self.filament_frame.refresh()
+            self.product_frame.refresh()
+            self.sales_frame.refresh()
+            self.analytics_frame.refresh()
+            
+            print(f"Switched to {new_dataset} database.")
+        except Exception as e:
+            # Log and possibly show a message box in a real app
+            print(f"Error switching dataset: {e}")
+            # Try to revert or stay in a safe state
+            set_database("prod")
+            db.connect(reuse_if_open=True)

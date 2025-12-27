@@ -15,3 +15,6 @@ env/
 .vscode/
 *.swp
 *.swo
+
+# Seeding scripts
+database/populate_etsy_products.py
